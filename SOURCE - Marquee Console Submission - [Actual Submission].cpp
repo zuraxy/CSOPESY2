@@ -12,14 +12,13 @@
 const double TARGET_FPS        = 165.0;
 const int    POLL_INTERVAL_MS  = 1;
 const int    BASE_SLEEP_MS     = 1;
-const int    ANIM_STEP         = 10;        
 const int    DEFAULT_REFRESH_MS =
     static_cast<int>(1000.0 / TARGET_FPS + 0.5);
 
-const int DESIRED_W   = 90;
-const int DESIRED_H   = 41;
-const int HEADER_ROWS = 13;
-const int OUTPUT_ROWS = 7;
+const int HEADER_ROWS = 9;
+const int OUTPUT_ROWS = 7;  // Maximum: the help command uses seven lines.
+const int MIN_CONSOLE_W = 60;
+const int MIN_CONSOLE_H = 25;
 
 struct AppState {
     int consoleW = 0;
@@ -38,6 +37,12 @@ struct AppState {
     double measuredFps = 0.0;
     int refreshMs = 0;
 };
+
+int visibleOutputRows(const AppState& app) {
+    const int count = static_cast<int>(app.output.size());
+    if (count < 1) return 1;
+    return (count < OUTPUT_ROWS) ? count : OUTPUT_ROWS;
+}
 
 const std::vector<std::string> BIG_CSOPESY = {
     R"(  _____  _____  ____  _____  ______  _______     __)",
@@ -87,9 +92,28 @@ void getConsoleSize(int& width, int& height) {
         width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
         height = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
     } else {
-        width = 80;
-        height = 25;
+        width = 480;
+        height = 160;
     }
+}
+
+void updateConsoleLayout(AppState& app, int width, int height) {
+    // Leave one column unused so printing the frame cannot wrap a line.
+    app.consoleW = width - 1;
+    app.consoleH = height;
+    app.marqueeTop = HEADER_ROWS;
+    app.marqueeBottom = height - visibleOutputRows(app) - 4;
+
+    const int maxX = (app.consoleW > logoWidth(app))
+        ? app.consoleW - logoWidth(app) : 0;
+    const int maxY = (app.marqueeBottom >=
+                      app.marqueeTop + static_cast<int>(app.art.size()) - 1)
+        ? app.marqueeBottom - static_cast<int>(app.art.size()) + 1
+        : app.marqueeTop;
+    if (app.x < 0) app.x = 0;
+    if (app.x > maxX) app.x = maxX;
+    if (app.y < app.marqueeTop) app.y = app.marqueeTop;
+    if (app.y > maxY) app.y = maxY;
 }
 
 void setCursorPosition(int x, int y) {
@@ -134,17 +158,13 @@ std::string buildFrame(const AppState& app) {
         static_cast<size_t>(height), std::string(static_cast<size_t>(width), ' '));
 
     const std::string bar(static_cast<size_t>(width), '=');
-    const std::string title = "CSOPESY MARQUEE CONSOLE";
     putStr(rows, 0, 0, "Welcome to CSOPESY!");
     putStr(rows, 2, 0, "Group developer:");
-    putStr(rows, 3, 0, "Aquino, Bon");
-    putStr(rows, 4, 0, "Dela Cruz, Karl Matthew");
+    putStr(rows, 3, 0, "Dela Cruz, Karl Matthew");
+    putStr(rows, 4, 0, "Aquino, Bon Windel");
     putStr(rows, 5, 0, "Espinosa, Jose Miguel");
-    putStr(rows, 6, 0, "Pineda, Dencel");
+    putStr(rows, 6, 0, "Pineda, Dencel Angelo");
     putStr(rows, 8, 0, "Version date: September 28, 2026");
-    putStr(rows, 10, 0, bar);
-    putStr(rows, 11, (width - static_cast<int>(title.size())) / 2, title);
-    putStr(rows, 12, 0, bar);
 
     const int originX = static_cast<int>(app.x + 0.5);
     const int originY = static_cast<int>(app.y + 0.5);
@@ -165,19 +185,19 @@ std::string buildFrame(const AppState& app) {
 
     putStr(rows, app.marqueeBottom + 1, 0, bar);
 
-    const int statusRow = height - OUTPUT_ROWS - 2;
-    const int promptRow = height - OUTPUT_ROWS - 1;
-    const int outputRow = height - OUTPUT_ROWS;
+    const int outputRows = visibleOutputRows(app);
+    const int statusRow = height - outputRows - 2;
+    const int promptRow = height - outputRows - 1;
+    const int outputRow = height - outputRows;
 
     char status[160];
     std::snprintf(
         status,
         sizeof(status),
-        "refresh: %d ms (%.1f FPS) | poll every %d ms | step every %d frames",
+        "refresh: %d ms (%.1f FPS) | poll every %d ms | move every redraw",
         app.refreshMs,
         app.measuredFps,
-        POLL_INTERVAL_MS,
-        ANIM_STEP);
+        POLL_INTERVAL_MS);
     putStr(rows, statusRow, 0, std::string(status));
 
     const std::string prefix = "Enter a command (help for list): ";
@@ -193,7 +213,7 @@ std::string buildFrame(const AppState& app) {
     }
     putStr(rows, promptRow, 0, prefix + visibleInput + "_");
 
-    for (int i = 0; i < OUTPUT_ROWS; i++) {
+    for (int i = 0; i < outputRows; i++) {
         const std::string line = (i < static_cast<int>(app.output.size()))
             ? app.output[static_cast<size_t>(i)]
             : "";
@@ -345,19 +365,14 @@ int main() {
     int width, height;
     getConsoleSize(width, height);
 
-    app.consoleW = (DESIRED_W < width - 1) ? DESIRED_W : width - 1;
-    if (app.consoleW < 20) {
-        app.consoleW = 20;
+    if (isInteractiveConsole() &&
+        (width < MIN_CONSOLE_W || height < MIN_CONSOLE_H)) {
+        std::cerr << "Resize the terminal to at least " << MIN_CONSOLE_W
+                  << " columns by " << MIN_CONSOLE_H << " rows, then restart.\n";
+        return 1;
     }
-    app.consoleH = (DESIRED_H < height) ? DESIRED_H : height;
-    const int minimumHeight =
-        HEADER_ROWS + static_cast<int>(BIG_CSOPESY.size()) + OUTPUT_ROWS + 3;
-    if (app.consoleH < minimumHeight) {
-        app.consoleH = minimumHeight;
-    }
-
-    app.marqueeTop = HEADER_ROWS;
-    app.marqueeBottom = app.consoleH - OUTPUT_ROWS - 4;
+    app.art = BIG_CSOPESY;
+    updateConsoleLayout(app, width, height);
     app.x = 1;
     app.y = HEADER_ROWS + 1;
     app.vx = 1;
@@ -366,7 +381,6 @@ int main() {
     app.marqueeRunning = false;
     app.measuredFps = 0.0;
     app.refreshMs = DEFAULT_REFRESH_MS;
-    app.art = BIG_CSOPESY;
     app.output.push_back("Type 'help' for commands or 'exit' to quit.");
 
     if (!isInteractiveConsole()) {
@@ -391,25 +405,49 @@ int main() {
     using Clock = std::chrono::steady_clock;
     Clock::time_point lastPoll = Clock::now();
     Clock::time_point lastDraw = Clock::now();
+    Clock::time_point lastResizeCheck = Clock::now();
     Clock::time_point fpsMark = Clock::now();
     int frames = 0;
-    int animationFrame = 0;
 
     while (app.running) {
         const Clock::time_point now = Clock::now();
 
+        if (std::chrono::duration<double, std::milli>(
+                now - lastResizeCheck).count() >= 100.0) {
+            int currentWidth, currentHeight;
+            getConsoleSize(currentWidth, currentHeight);
+            if (currentWidth != width || currentHeight != height) {
+                width = currentWidth;
+                height = currentHeight;
+                std::system("cls");
+                if (width >= MIN_CONSOLE_W && height >= MIN_CONSOLE_H) {
+                    updateConsoleLayout(app, width, height);
+                    drawFrame(buildFrame(app));
+                } else {
+                    std::cout << "Resize the terminal to at least "
+                              << MIN_CONSOLE_W << " columns by "
+                              << MIN_CONSOLE_H << " rows." << std::flush;
+                }
+                lastDraw = now;
+            }
+            lastResizeCheck = now;
+        }
+
         if (std::chrono::duration<double, std::milli>(now - lastPoll).count() >=
             POLL_INTERVAL_MS) {
             pollInput(app);
+            if (width >= MIN_CONSOLE_W && height >= MIN_CONSOLE_H) {
+                updateConsoleLayout(app, width, height);
+            }
             lastPoll = now;
         }
 
-        if (std::chrono::duration<double, std::milli>(now - lastDraw).count() >=
-            app.refreshMs) {
-            if (app.marqueeRunning && animationFrame % ANIM_STEP == 0) {
+        if (width >= MIN_CONSOLE_W && height >= MIN_CONSOLE_H &&
+            std::chrono::duration<double, std::milli>(now - lastDraw).count() >=
+                app.refreshMs) {
+            if (app.marqueeRunning) {
                 updateMotion(app);
             }
-            animationFrame++;
 
             frames++;
             const double elapsed =
