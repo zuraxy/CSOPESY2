@@ -37,6 +37,17 @@ Instruction generateInstruction(std::minstd_rand& random, const std::string& nam
     const auto pick = [&random](int low, int high) {
         return std::uniform_int_distribution<int>(low, high)(random);
     };
+    const auto variable = [&pick] {
+        return std::string(1, static_cast<char>('a' + pick(0, 25)));
+    };
+    // Each operand is independently a variable or a literal, covering
+    // value+value, var+value, value+var and var+var.
+    const auto operand = [&pick, &variable]() -> Operand {
+        if (pick(0, 1) == 0) {
+            return variable();
+        }
+        return static_cast<std::uint16_t>(pick(0, 100));
+    };
     const int operation = pick(0, depth < 3 ? 5 : 4);
     if (operation == 5) {
         const auto repeats = static_cast<std::uint32_t>(
@@ -57,11 +68,11 @@ Instruction generateInstruction(std::minstd_rand& random, const std::string& nam
     case 0:
         return {Sleep{static_cast<std::uint8_t>(pick(1, 5))}};
     case 1:
-        return {Declare{"x", static_cast<std::uint16_t>(pick(0, 100))}};
+        return {Declare{variable(), static_cast<std::uint16_t>(pick(0, 100))}};
     case 2:
-        return {Add{"x", std::string{"x"}, static_cast<std::uint16_t>(pick(0, 100))}};
+        return {Add{variable(), operand(), operand()}};
     case 3:
-        return {Subtract{"x", std::string{"x"}, static_cast<std::uint16_t>(pick(0, 100))}};
+        return {Subtract{variable(), operand(), operand()}};
     default:
         return {Print{"Hello world from " + name + "!", std::nullopt}};
     }

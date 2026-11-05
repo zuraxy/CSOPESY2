@@ -86,9 +86,14 @@ void printBanner() {
 Welcome to CSOPESY Emulator!
 
 Developers:
-Karl Matthew Dela Cruz, Bon Aquino,
-Dencel Angelo Pineda, Jose Miguel Espinosa
+Aquino, Bon
+Dela Cruz, Karl Matthew
+Espinosa, Jose Miguel
+Pineda, Dencel Angelo
+
+Last updated: 11-05-2026
 -------------------------------------------
+
 )";
 }
 
@@ -110,10 +115,10 @@ void showScreen(Runtime& runtime, ProcessId id) {
                   << ' ' << std::quoted(entry.message) << '\n';
     }
     if (process.state == State::finished) {
-        std::cout << "\nFinished!\n";
+        std::cout << "\nFinished!\n\n";
     } else {
         std::cout << "\nCurrent instruction line: " << process.completed
-                  << "\nLines of code: " << process.total << '\n';
+                  << "\nLines of code: " << process.total << "\n\n";
     }
 }
 
@@ -174,6 +179,7 @@ void screenCommand(const std::vector<std::string>& command, Runtime& runtime,
             return scheduler.utilization();
         });
         writeUtilization(std::cout, report);
+        std::cout << '\n';
         return;
     }
     if (command.size() != 3 || (command[1] != "-s" && command[1] != "-r")) {
@@ -217,6 +223,7 @@ int main() {
                     clearConsole(clear);
                     printBanner();
                 } else if (noArgs && name == "process-smi") {
+                    std::cout << '\n';
                     showScreen(*runtime, *current);
                 } else {
                     std::cout << "Available commands: process-smi, exit\n";
@@ -234,11 +241,9 @@ int main() {
                 std::cout << "Run initialize first.\n";
             } else if (name == "screen") {
                 screenCommand(command, *runtime, current, clear);
-            } else if (noArgs && name == "scheduler-start") {
+            } else if (noArgs && (name == "scheduler-start" || name == "scheduler-test")) {
                 runtime->access([](Scheduler& scheduler) { scheduler.startBatch(); });
                 std::cout << "Batch generation started.\n";
-            } else if (noArgs && name == "scheduler-test") {
-                std::cout << "no scheduler-test command found, did you mean scheduler-start?\n";
             } else if (noArgs && name == "scheduler-stop") {
                 runtime->access([](Scheduler& scheduler) { scheduler.stopBatch(); });
                 std::cout << "Batch generation stopped.\n";
