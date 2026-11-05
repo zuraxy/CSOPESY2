@@ -41,11 +41,12 @@ Build from the project root:
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
   cmake --build build
 
-Run from the build folder:
+Run from inside the build folder (it contains config.txt):
 
-  .\build\csopesy.exe
+  cd build
+  .\csopesy.exe
 
-On Linux or macOS, run ./build/csopesy instead.
+On Linux or macOS, run ./csopesy from the build folder instead.
 
 ======================================
 
