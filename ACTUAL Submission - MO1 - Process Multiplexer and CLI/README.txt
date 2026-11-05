@@ -6,11 +6,16 @@ SOURCE/
   authors, entry-point information, and build/run instructions in another README.txt
 
 PPT/
-  Contains the technical report (command recognition, console UI, command
-  interpreter, process representation, and scheduler implementation).
+  Contains the original technical report. Its code references/examples predate
+  the detailed-test revision; see SOURCE/TEST_CASES.md for the current behavior.
 
-VIDEOS/
-  Contains the video demonstrations of the CLI for the test cases.
+Assessment videos
+  Recordings are not included in this package. Record and submit the required
+  MP4 evidence separately; automated transcripts are not video evidence.
+
+SOURCE/TEST_CASES.md
+  Contains the Detailed-Specs.pdf Questions 4-8 launch/recording guide, the
+  separate Question 6 runner rationale, and verification instructions.
 
 SPECS/
   Contains the project specification (specs.pdf) and its page images.

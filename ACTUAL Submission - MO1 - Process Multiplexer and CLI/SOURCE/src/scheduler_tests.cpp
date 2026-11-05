@@ -184,6 +184,109 @@ void checkBatch() {
     expect(scheduler.findLive("p02").has_value(), "Batch restart did not continue naming");
 }
 
+void checkAlternatingWorkload() {
+    auto settings = config(Algorithm::rr, 1, 20);
+    settings.minInstructions = settings.maxInstructions = 100000;
+    settings.workload = Workload::alternating;
+    for (int run = 0; run < 2; ++run) {
+        Scheduler scheduler(settings, static_cast<std::uint32_t>(run + 1));
+        const auto id = scheduler.create("proc-01");
+        int previous = 0;
+        std::size_t shown = 0;
+        for (int tick = 1; tick <= 201; ++tick) {
+            scheduler.step();
+            const auto screen = scheduler.screen(id, shown);
+            expect(screen.process.completed == static_cast<Tick>(tick),
+                   "Alternating workload inserted an extra instruction or SLEEP");
+            expect(screen.logs.size() == static_cast<std::size_t>(tick % 2),
+                   "Workload must alternate PRINT then ADD");
+            if (!screen.logs.empty()) {
+                const auto& text = screen.logs.front().message;
+                expect(text.rfind("Value from: ", 0) == 0, "Incorrect variable PRINT text");
+                const int value = std::stoi(text.substr(12));
+                expect(shown == 0 ? value == 0 : value - previous >= 1 && value - previous <= 10,
+                       "x did not start at zero or ADD was outside [1,10]");
+                previous = value;
+                ++shown;
+            }
+        }
+        for (int tick = 201; tick < 100000; ++tick) {
+            scheduler.step();
+        }
+        const auto screen = scheduler.screen(id);
+        expect(screen.process.state == State::finished && screen.process.total == 100000
+                   && screen.logs.size() == 50000 && screen.logs.back().message == "Value from: 65535",
+               "Alternating workload length or uint16 saturation is incorrect");
+        expect(scheduler.screen(id, screen.logs.size()).logs.empty(), "Live log cursor repeats logs");
+    }
+}
+
+void checkReportedStates() {
+    Scheduler scheduler(config(Algorithm::fcfs), 1);
+    const auto sleeper = scheduler.create("sleeper", Program{{Sleep{3}}, print()});
+    scheduler.create("runner", Program(10, print()));
+    scheduler.create("queued", Program(10, print()));
+    scheduler.step();
+    auto report = scheduler.utilization();
+    expect(report.used == 1 && report.running.size() == 1 && report.ready.size() == 1
+               && report.sleeping.size() == 1 && report.sleeping.front().id == sleeper,
+           "Report must retain ready/sleeping work without inflating cores used");
+}
+
+void checkDetailedBatchCases() {
+    auto settings = config(Algorithm::rr, 4, 5);
+    settings.minInstructions = 1000;
+    settings.maxInstructions = 2000;
+    Scheduler busy(settings, 42);
+    busy.startBatch();
+    for (int tick = 0; tick < 1000; ++tick) busy.step(); // Question 4: 5 s at 5 ms/tick.
+    expect(busy.utilization().used == 4 && busy.utilization().finished.empty(),
+           "Question 4 did not retain full utilization");
+
+    settings = config(Algorithm::rr, 8, 1);
+    settings.minInstructions = settings.maxInstructions = 100;
+    Scheduler drain(settings, 42);
+    drain.startBatch();
+    for (int tick = 0; tick < 2000; ++tick) drain.step(); // Generate for 10 seconds.
+    drain.stopBatch();
+    for (int tick = 0; tick < 6000; ++tick) drain.step(); // 30 s at the regular 5 ms rate.
+    expect(!drain.utilization().ready.empty(), "Question 6 capacity-conflict regression changed");
+    for (int tick = 6000; tick < 30000; ++tick) drain.step(); // Separate runner: 1 ms/tick.
+    const auto drained = drain.utilization();
+    expect(drained.used == 0 && drained.ready.empty() && drained.sleeping.empty()
+               && drained.finished.size() == 2000,
+           "Question 6 work did not genuinely drain at the separate runner's tick budget");
+
+    settings = config(Algorithm::rr, 1, 10);
+    settings.batchFrequency = 30;
+    settings.minInstructions = 30;
+    settings.maxInstructions = 45;
+    settings.executionDelay = 1;
+    Scheduler intermittent(settings, 42);
+    intermittent.startBatch();
+    bool idle = false, active = false;
+    for (int tick = 0; tick < 200; ++tick) {
+        intermittent.step();
+        idle = idle || intermittent.utilization().used == 0;
+        active = active || intermittent.utilization().used == 1;
+    }
+    expect(idle && active, "Question 7 did not expose both utilization states");
+
+    settings = config(Algorithm::rr, 16, 5);
+    settings.minInstructions = settings.maxInstructions = 5000;
+    settings.executionDelay = 5;
+    Scheduler longJobs(settings, 42);
+    longJobs.startBatch();
+    for (int tick = 1; tick <= 6000; ++tick) {
+        longJobs.step();
+        if (tick >= 2000 && tick % 1000 == 0) {
+            const auto snapshot = longJobs.utilization();
+            expect(snapshot.used == 16 && snapshot.finished.size() < 10,
+                   "Question 8 snapshot is not fully occupied or has too many completions");
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -196,6 +299,9 @@ int main() {
         checkInstructions();
         checkGeneratedLengths();
         checkBatch();
+        checkAlternatingWorkload();
+        checkReportedStates();
+        checkDetailedBatchCases();
         std::cout << "All scheduler checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

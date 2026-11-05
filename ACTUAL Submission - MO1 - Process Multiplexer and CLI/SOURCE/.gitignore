@@ -1,2 +1,4 @@
-/build/
-/csopesy-log.txt
+/build*/
+csopesy-log.txt
+__pycache__/
+*.pyc

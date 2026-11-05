@@ -24,6 +24,7 @@ using Time = std::chrono::system_clock::time_point;
 
 enum class Algorithm { fcfs, rr };
 enum class State { ready, running, sleeping, finished };
+enum class Workload { random, alternating };
 
 struct Config {
     std::size_t cores = 4;
@@ -33,6 +34,7 @@ struct Config {
     Tick minInstructions = 1000;
     Tick maxInstructions = 2000;
     Tick executionDelay = 0;
+    Workload workload = Workload::random;
 };
 
 Config readConfig(const std::filesystem::path& file, std::ostream& warnings);
@@ -79,6 +81,8 @@ struct Utilization {
     std::size_t used;
     std::vector<ProcessSummary> running;
     std::vector<ProcessSummary> finished;
+    std::vector<ProcessSummary> ready;
+    std::vector<ProcessSummary> sleeping;
 };
 
 // The caller serializes access when the scheduler is shared with the console.
@@ -90,7 +94,7 @@ public:
     ProcessId create(std::string name);
     ProcessId create(std::string name, Program program);
     std::optional<ProcessId> findLive(const std::string& name) const;
-    ProcessScreen screen(ProcessId id) const;
+    ProcessScreen screen(ProcessId id, std::size_t firstLog = 0) const;
     Utilization utilization() const;
 
     void startBatch();

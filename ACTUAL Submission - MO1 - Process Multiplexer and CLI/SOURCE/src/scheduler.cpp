@@ -107,8 +107,8 @@ struct LoopFrame {
 };
 
 struct Execution {
-    Execution(std::optional<Program> program, std::uint32_t seed)
-        : program(std::move(program)), random(seed) {}
+    Execution(std::optional<Program> instructions, std::uint32_t seed, Workload mode)
+        : program(std::move(instructions)), random(seed), workload(mode), variables{{"x", 0}} {}
 
     const Instruction& nextInstruction(Tick remaining, const std::string& name) {
         for (;;) {
@@ -120,7 +120,19 @@ struct Execution {
             } else if (program) {
                 instruction = &(*program)[nextRoot++];
             } else {
-                generated = generateInstruction(random, name, remaining);
+                if (workload == Workload::alternating) {
+                    // The initial x=0 is process state, not an extra instruction.
+                    // Preserve the exact configured PRINT, ADD, PRINT, ADD... length.
+                    if (nextRoot++ % 2 == 0) {
+                        generated = Instruction{Print{"Value from: ", std::string{"x"}}};
+                    } else {
+                        const auto increment = static_cast<std::uint16_t>(
+                            std::uniform_int_distribution<int>(1, 10)(random));
+                        generated = Instruction{Add{"x", std::string{"x"}, increment}};
+                    }
+                } else {
+                    generated = generateInstruction(random, name, remaining);
+                }
                 instruction = &*generated;
             }
             const auto* loop = std::get_if<For>(&instruction->operation);
@@ -162,6 +174,7 @@ struct Execution {
     std::optional<Program> program;
     std::size_t nextRoot = 0;
     std::minstd_rand random;
+    Workload workload;
     std::optional<Instruction> generated;
     std::vector<LoopFrame> loops;
     std::unordered_map<std::string, std::uint16_t> variables;
@@ -266,7 +279,7 @@ ProcessId Scheduler::create(std::string name, std::optional<Program> program) {
     if (total == 0) {
         throw std::invalid_argument("A process must have at least one instruction.");
     }
-    auto execution = std::make_unique<Execution>(std::move(program), random_());
+    auto execution = std::make_unique<Execution>(std::move(program), random_(), config_.workload);
     processes_.push_back({{id, std::move(name), std::chrono::system_clock::now(), State::ready,
                            std::nullopt, 0, total}, std::move(execution), {}});
     names_.emplace(processes_.back().summary.name, id);
@@ -282,13 +295,15 @@ std::optional<ProcessId> Scheduler::findLive(const std::string& name) const {
     return it->second;
 }
 
-ProcessScreen Scheduler::screen(ProcessId id) const {
+ProcessScreen Scheduler::screen(ProcessId id, std::size_t firstLog) const {
     const auto& process = processes_.at(id);
-    return {process.summary, process.logs};
+    const auto begin = process.logs.begin() + static_cast<std::ptrdiff_t>(
+        std::min(firstLog, process.logs.size()));
+    return {process.summary, {begin, process.logs.end()}};
 }
 
 Utilization Scheduler::utilization() const {
-    Utilization snapshot{cores_.size(), 0, {}, {}};
+    Utilization snapshot{cores_.size(), 0, {}, {}, {}, {}};
     for (const auto& core : cores_) {
         if (core.process) {
             snapshot.running.push_back(processes_[*core.process].summary);
@@ -298,6 +313,10 @@ Utilization Scheduler::utilization() const {
     for (const auto& process : processes_) {
         if (process.summary.state == State::finished) {
             snapshot.finished.push_back(process.summary);
+        } else if (process.summary.state == State::ready) {
+            snapshot.ready.push_back(process.summary);
+        } else if (process.summary.state == State::sleeping) {
+            snapshot.sleeping.push_back(process.summary);
         }
     }
     return snapshot;
