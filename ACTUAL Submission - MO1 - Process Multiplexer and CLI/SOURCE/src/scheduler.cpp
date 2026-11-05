@@ -108,7 +108,9 @@ struct LoopFrame {
 
 struct Execution {
     Execution(std::optional<Program> program, std::uint32_t seed)
-        : program(std::move(program)), random(seed) {}
+        : program(std::move(program)), random(seed) {
+        variables["x"] = 0;
+    }
 
     const Instruction& nextInstruction(Tick remaining, const std::string& name) {
         for (;;) {
@@ -120,7 +122,16 @@ struct Execution {
             } else if (program) {
                 instruction = &(*program)[nextRoot++];
             } else {
-                generated = generateInstruction(random, name, remaining);
+                // Quiz mode: alternate PRINT("Value from: " + x) and ADD(x, x, 1-10).
+                (void)remaining;
+                (void)name;
+                if (generatedCount++ % 2 == 0) {
+                    generated = Instruction{Print{"Value from: ", std::string{"x"}}};
+                } else {
+                    const auto amount = static_cast<std::uint16_t>(
+                        std::uniform_int_distribution<int>(1, 10)(random));
+                    generated = Instruction{Add{"x", std::string{"x"}, amount}};
+                }
                 instruction = &*generated;
             }
             const auto* loop = std::get_if<For>(&instruction->operation);
@@ -161,6 +172,7 @@ struct Execution {
 
     std::optional<Program> program;
     std::size_t nextRoot = 0;
+    std::size_t generatedCount = 0;
     std::minstd_rand random;
     std::optional<Instruction> generated;
     std::vector<LoopFrame> loops;
@@ -305,7 +317,7 @@ Utilization Scheduler::utilization() const {
 
 void Scheduler::startBatch() {
     if (!nextArrival_) {
-        nextArrival_ = tick_ + config_.batchFrequency;
+        nextArrival_ = tick_ + config_.batchFrequency * config_.arrivalSpacing;
     }
 }
 
@@ -376,7 +388,7 @@ void Scheduler::generateArrival() {
         name = (batchNumber_ < 10 ? "p0" : "p") + number;
     } while (names_.find(name) != names_.end());
     create(std::move(name));
-    *nextArrival_ += config_.batchFrequency;
+    *nextArrival_ += config_.batchFrequency * config_.arrivalSpacing;
 }
 
 void Scheduler::dispatch() {

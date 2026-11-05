@@ -30,6 +30,8 @@ struct Config {
     Algorithm algorithm = Algorithm::rr;
     Tick quantum = 5;
     Tick batchFrequency = 1;
+    // Ticks per batch-process-freq unit. 1 = a process every batch-process-freq ticks.
+    Tick arrivalSpacing = 1;
     Tick minInstructions = 1000;
     Tick maxInstructions = 2000;
     Tick executionDelay = 0;

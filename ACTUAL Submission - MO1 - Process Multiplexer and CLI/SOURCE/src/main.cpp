@@ -24,6 +24,9 @@ using namespace csopesy;
 using namespace std::chrono_literals;
 
 constexpr auto tickInterval = 5ms;
+// Each batch-process-freq unit spans this many ticks, so one core can drain what
+// a batch generates (Detailed-Specs Q6/Q7 expect the CPU to go idle).
+constexpr Tick arrivalSpacing = 20;
 
 class Runtime {
 public:
@@ -172,14 +175,18 @@ std::vector<std::string> tokens(const std::string& line) {
     return result;
 }
 
+void showUtilization(Runtime& runtime) {
+    const auto report = runtime.access([](Scheduler& scheduler) {
+        return scheduler.utilization();
+    });
+    writeUtilization(std::cout, report);
+    std::cout << '\n';
+}
+
 void screenCommand(const std::vector<std::string>& command, Runtime& runtime,
                    std::optional<ProcessId>& current, bool clear) {
     if (command.size() == 2 && command[1] == "-ls") {
-        const auto report = runtime.access([](Scheduler& scheduler) {
-            return scheduler.utilization();
-        });
-        writeUtilization(std::cout, report);
-        std::cout << '\n';
+        showUtilization(runtime);
         return;
     }
     if (command.size() != 3 || (command[1] != "-s" && command[1] != "-r")) {
@@ -234,13 +241,17 @@ int main() {
                 if (runtime) {
                     std::cout << "The emulator is already initialized.\n";
                 } else {
-                    runtime = std::make_unique<Runtime>(readConfig("config.txt", std::cout));
+                    auto config = readConfig("config.txt", std::cout);
+                    config.arrivalSpacing = arrivalSpacing;
+                    runtime = std::make_unique<Runtime>(config);
                     std::cout << "Initialized.\n";
                 }
             } else if (!runtime) {
                 std::cout << "Run initialize first.\n";
             } else if (name == "screen") {
                 screenCommand(command, *runtime, current, clear);
+            } else if (noArgs && name == "screen-ls") {
+                showUtilization(*runtime);
             } else if (noArgs && (name == "scheduler-start" || name == "scheduler-test")) {
                 runtime->access([](Scheduler& scheduler) { scheduler.startBatch(); });
                 std::cout << "Batch generation started.\n";
